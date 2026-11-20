@@ -1,0 +1,18 @@
+knowledge_base:
+  files:
+    - AGENTS.md
+    - SECURITY.md
+
+# Can be added if specific files need to be explicitly skipped in the scan.
+
+# scan:
+#   include:
+#     - src
+#     - app
+#     - packages
+#   exclude:
+#     - node_modules
+#     - dist
+#     - build
+#     - coverage
+#     - test/fixtures
