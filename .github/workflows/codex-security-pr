@@ -1,0 +1,129 @@
+name: Codex Security - Pull Request Diff Scan
+
+# Controls when the workflow runs.
+# This workflow runs when a pull request is opened, updated, or reopened.
+# It also supports manual execution through workflow_dispatch.
+on:
+  pull_request:
+    branches:
+      - <DEMO_BRANCH>    
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+  # Manual trigger, useful for demos or testing.
+  # The scan_depth input allows you to choose normal or deep scanning manually.
+  workflow_dispatch:
+    inputs:
+      scan_depth:
+        description: "Choose scan depth: normal or deep"
+        required: true
+        default: "normal"
+        type: choice
+        options:
+          - normal
+          - deep
+
+# Restrict the default GitHub token permissions.
+# The scan only needs to read repository contents and pull request metadata to identify diff.
+# Do not grant write permissions unless explicitly required.
+permissions:
+  contents: read
+  pull-requests: read
+  # security-events: write
+
+# Prevent multiple scans for the same PR/ref from running at the same time.
+# If a developer pushes new commits, the previous scan is cancelled.
+concurrency:
+  group: codex-security-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codex-security-pr:
+    name: Codex Security PR Diff Scan
+
+    # Uses a GitHub-hosted ephemeral runner.
+    # The runner is created for this job and destroyed after completion.
+    runs-on: ubuntu-24.04
+
+    # Prevents runaway scans.
+    timeout-minutes: 60
+
+    # Prevent exposing secrets to pull requests from forks.
+    # For normal pull_request events from forks, repository secrets should not be exposed.
+    # This condition makes the intent explicit.
+    if: >
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          # Prevents the GitHub token from being persisted in the local Git config.
+          # This reduces the risk of accidental pushes or token exposure.
+          persist-credentials: false
+
+          # Fetch enough history for diff-based analysis if needed.
+          # You may reduce this if your setup works with shallow clones.
+          fetch-depth: 0
+
+      - name: Run Codex Security diff scan - normal
+        if: >
+          github.event_name != 'workflow_dispatch' ||
+          github.event.inputs.scan_depth == 'normal'
+        # Select version of Codex Security present on the main branch.
+        uses: openai/codex-security@main
+        with:
+          # Scans only the pull request diff / changed code.
+          scope: diff
+
+          # Add AGENTS.md and SECURITY.md guidance files.
+          config: codex-security.yaml
+
+          # Normal scan: balanced speed/cost/thoroughness.
+          effort: medium
+
+          # Uses Daybreak Blue, assuming your OpenAI project is approved for it.
+          cyber-access-program: daybreak_blue
+
+          # Report-only mode.
+          # The workflow will not fail only because findings are present.
+          # Change to high or critical once you want enforcement.
+          fail-on-severity: none
+
+          # Upload scan outputs as workflow artifacts if supported by the action version.
+          upload-artifacts: "true"
+
+        env:
+          # Dedicated OpenAI API key stored in GitHub Actions secrets.
+          # It should come from the Daybreak-enabled OpenAI project.
+          OPENAI_API_KEY: ${{ secrets.CODEX_SECURITY_API_KEY }}
+
+      - name: Run Codex Security diff scan - deep
+        if: >
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.scan_depth == 'deep'
+        uses: openai/codex-security@main
+        with:
+          # Scans only the pull request diff / changed code.
+          scope: diff
+
+          # Add AGENTS.md and SECURITY.md guidance files.
+          config: codex-security.yaml
+
+          # Deep scan: more thorough reasoning, slower and potentially higher cost.
+          effort: xhigh
+
+          # Uses Daybreak Blue, assuming your OpenAI project is approved for it.
+          cyber-access-program: daybreak_blue
+
+          # Still report-only by default.
+          fail-on-severity: none
+
+          # Upload scan outputs as workflow artifacts if supported.
+          upload-artifacts: "true"
+
+        env:
+          OPENAI_API_KEY: ${{ secrets.CODEX_SECURITY_API_KEY }}

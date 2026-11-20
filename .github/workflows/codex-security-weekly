@@ -1,0 +1,123 @@
+name: Codex Security - Weekly Full Repository Scan
+
+# Controls when the workflow runs.
+# This workflow runs every Monday and can also be triggered manually.
+on:
+  schedule:
+    # Runs every Monday at 07:30 UTC.
+    # Adjust the time as needed.
+    - cron: "30 7 * * 1"
+
+  # Manual trigger, useful if you want to run a full scan on demand.
+  # The scan_depth input allows you to choose normal or deep scanning manually.
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to scan"
+        required: true
+        default: "<VULNERABLE_BRANCH>"
+        type: choice
+        options:
+          - <VULNERABLE_BRANCH>
+          - <FIXED_BRANCH>
+      
+      scan_depth:
+        description: "Choose scan depth: normal or deep"
+        required: true
+        default: "deep"
+        type: choice
+        options:
+          - normal
+          - deep
+
+
+# Restrict the default GitHub token permissions.
+# Full repository scanning only requires read access.
+permissions:
+  contents: read
+  # security-events: write
+
+# Prevent multiple full repository scans from running at the same time.
+concurrency:
+  group: codex-security-weekly-full-branch
+  cancel-in-progress: true
+
+jobs:
+  codex-security-full-branch:
+    name: Codex Security Full Branch Scan
+
+    # Uses a GitHub-hosted ephemeral runner.
+    runs-on: ubuntu-24.04
+
+    # Full repository scans can take longer than PR diff scans.
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out selected branch
+        uses: actions/checkout@v4
+        with:
+          # Prevents the GitHub token from being persisted in Git config.
+          persist-credentials: false
+
+          # Full history is useful for repository-level analysis.
+          # If not required, you can reduce this for speed.
+          fetch-depth: 0
+          
+          # Only scans branch selected at launch.
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Run Codex Security full repository scan - normal
+        if: >
+          github.event_name == 'schedule' ||
+          github.event.inputs.scan_depth == 'normal'
+        uses: openai/codex-security@main
+        with:
+          # Scans the whole repository.
+          scope: repository
+
+          # Add AGENTS.md and SECURITY.md guidance files.
+          config: codex-security.yaml
+
+          # Normal scan: suitable if you want faster weekly checks.
+          effort: medium
+
+          # Uses Daybreak Blue, assuming your OpenAI project is approved for it.
+          cyber-access-program: daybreak_blue
+
+          # Report-only mode.
+          # Change to high or critical if you want the scheduled scan to fail on serious findings.
+          fail-on-severity: none
+
+          # Upload scan outputs as workflow artifacts if supported.
+          upload-artifacts: "true"
+
+        env:
+          # Dedicated OpenAI API key stored as a GitHub Actions secret.
+          OPENAI_API_KEY: ${{ secrets.CODEX_SECURITY_API_KEY }}
+
+      - name: Run Codex Security full repository scan - deep
+        if: >
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.scan_depth == 'deep'
+        uses: openai/codex-security@main
+        with:
+          # Scans the whole repository.
+          scope: repository
+
+          # Add AGENTS.md and SECURITY.md guidance files.
+          config: codex-security.yaml
+
+          # Deep scan: more comprehensive reasoning, recommended for periodic full scans.
+          effort: xhigh
+
+          # Uses Daybreak Blue, assuming your OpenAI project is approved for it.
+          cyber-access-program: daybreak_blue
+
+          # Report-only mode by default.
+          fail-on-severity: none
+
+          # Upload scan outputs as workflow artifacts if supported.
+          upload-artifacts: "true"
+
+        env:
+          OPENAI_API_KEY: ${{ secrets.CODEX_SECURITY_API_KEY }}
